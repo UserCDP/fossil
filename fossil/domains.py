@@ -1238,3 +1238,190 @@ if __name__ == "__main__":
     ax = fig.add_subplot(projection="3d")
     ax.scatter(S[:, 0], S[:, 1], S[:, 2], marker=".")
     plt.show()
+
+#### Personal addition ####
+
+class PolynomialDomain:
+    """
+    A domain described by an inequality f(x) <= 0,
+    where f is a polynomial (or any scalar function) in R^n.
+    """
+
+    def __init__(self, polynomial_func, dimension, dim_select=None):
+        """
+        Args:
+            polynomial_func: A callable f(x1, x2, ..., xN) -> scalar
+                             (can be a polynomial or any function).
+            dimension: The full dimension of the space (len(x)).
+            dim_select: Optional list of indices specifying which
+                        coordinates the function depends on (e.g. [0,2]).
+                        If None, all dimensions are used.
+        """
+        self.polynomial_func = polynomial_func
+        self.dimension = dimension
+        self.dim_select = dim_select
+
+    def __repr__(self):
+        return f"PolynomialDomain(dimension={self.dimension}, dim_select={self.dim_select})"
+
+    def _extract_relevant_coords(self, x_list):
+        """
+        x_list is a list of z3 or sympy variables, or anything indexable.
+        If dim_select is given, pick only those. Otherwise return entire x_list.
+        """
+        if self.dim_select is not None:
+            return [x_list[i] for i in self.dim_select]
+        return x_list
+
+    def generate_domain(self, x_list):
+        """
+        param x_list: data point variables (e.g. z3 or sympy Reals).
+        returns: symbolic formula f(x) <= 0
+        """
+        x_list = self._extract_relevant_coords(x_list)
+        return self.polynomial_func(*x_list) <= 0
+
+    def generate_boundary(self, x_list):
+        """
+        param x_list: data point variables (e.g. z3 or sympy Reals).
+        returns: symbolic formula f(x) == 0
+        """
+        x_list = self._extract_relevant_coords(x_list)
+        return self.polynomial_func(*x_list) == 0
+
+    def generate_interior(self, x_list):
+        """
+        param x_list: data point variables (e.g. z3 or sympy Reals).
+        returns: symbolic formula f(x) < 0
+        """
+        x_list = self._extract_relevant_coords(x_list)
+        return self.polynomial_func(*x_list) < 0
+
+    def generate_data(self, batch_size, bounds=(-1, 1)):
+        """
+        Naive example: generate random points in [bounds[0], bounds[1]]^n,
+        then keep those that satisfy f(x) <= 0. (Rejection sampling)
+        
+        NOTE: This can be very inefficient for complicated or small-volume sets.
+        """
+        dim = self.dimension if self.dim_select is None else len(self.dim_select)
+        X = []
+        max_tries = batch_size * 50  # a safety limit to avoid infinite loops
+        count = 0
+        while len(X) < batch_size and count < max_tries:
+            # Generate a random point in R^dim
+            pt = np.random.uniform(bounds[0], bounds[1], dim)
+            # Evaluate f
+            val = self.polynomial_func(*pt)
+            if val <= 0:
+                X.append(pt)
+            count += 1
+
+        return np.array(X)
+
+    def sample_border(self, batch_size, bounds=(-1, 1), tol=1e-2):
+        """
+        Naive example: rejection-sample a large set of points,
+        keep only those with f(x) near zero, i.e. |f(x)| < tol.
+        """
+        dim = self.dimension if self.dim_select is None else len(self.dim_select)
+        X = []
+        max_tries = batch_size * 100
+        count = 0
+        while len(X) < batch_size and count < max_tries:
+            pt = np.random.uniform(bounds[0], bounds[1], dim)
+            val = self.polynomial_func(*pt)
+            if abs(val) < tol:
+                X.append(pt)
+            count += 1
+
+        return np.array(X)
+
+    def check_containment(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Example containment check using PyTorch:
+        Evaluate f(x). If f(x) <= 0, it's inside the domain.
+        
+        We assume polynomial_func can be called with PyTorch Tensors,
+        or we wrap it. Otherwise, you must implement a custom
+        PyTorch-friendly version here.
+        """
+        if self.dim_select is not None:
+            x = x[:, self.dim_select]  # shape: (N, len(dim_select))
+        # We apply polynomial_func row by row.
+        # This requires polynomial_func to handle a 1D array or we broadcast it.
+        # We'll do a naive approach: loop or vectorize if possible.
+        vals = []
+        for row in x:
+            row_val = self.polynomial_func(*row)  # row is something like x0, x1, ...
+            vals.append(row_val)
+        vals = torch.tensor(vals)
+        return vals <= 0
+
+    def check_containment_grad(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Return how far above 0 we are:
+          - 0 if contained (f(x) <= 0)
+          - positive if outside (f(x) > 0)
+        This is a 'distance' in function space, i.e. max(0, f(x)).
+        
+        If polynomial_func is not differentiable in torch, gradient won't flow.
+        You need to implement a torch-based function for real autodiff.
+        """
+        if self.dim_select is not None:
+            x = x[:, self.dim_select]
+
+        vals = []
+        for row in x:
+            row_val = self.polynomial_func(*row) 
+            vals.append(row_val)
+        vals = torch.tensor(vals, dtype=torch.float32)
+        # ReLU of f(x)
+        return torch.relu(vals)
+
+    def plot(self, fig=None, ax=None, label=None, bounds=(-2, 2), ngrid=200):
+        """
+        Simple contour-based plot if dimension==2 after dim_select.
+        We create a meshgrid in [bounds[0], bounds[1]]^2,
+        then plot the contour f(x,y) = 0.
+        """
+        if self.dim_select is not None:
+            if len(self.dim_select) != 2:
+                raise NotImplementedError("Plotting only supported for 2D sets.")
+        else:
+            if self.dimension != 2:
+                raise NotImplementedError("Plotting only supported for 2D sets.")
+
+        import matplotlib.pyplot as plt
+
+        if fig is None or ax is None:
+            fig, ax = plt.subplots()
+
+        # Prepare a grid
+        xs = np.linspace(bounds[0], bounds[1], ngrid)
+        ys = np.linspace(bounds[0], bounds[1], ngrid)
+        X, Y = np.meshgrid(xs, ys)
+
+        # Evaluate polynomial_func
+        Z = np.zeros_like(X)
+        for i in range(ngrid):
+            for j in range(ngrid):
+                # If using dim_select, we reorder
+                if self.dim_select is not None:
+                    # We'll place coordinates in full dimension but only fill the selected dims
+                    full_coords = [0]*self.dimension
+                    full_coords[self.dim_select[0]] = X[i,j]
+                    full_coords[self.dim_select[1]] = Y[i,j]
+                    val = self.polynomial_func(*full_coords)
+                else:
+                    val = self.polynomial_func(X[i,j], Y[i,j])
+                Z[i,j] = val
+
+        # Plot the contour f(x,y)=0
+        cs = ax.contour(X, Y, Z, levels=[0], colors='r')
+        ax.clabel(cs, inline=True, fontsize=8)
+        ax.set_title("PolynomialDomain: f(x,y) = 0")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+
+        return fig, ax

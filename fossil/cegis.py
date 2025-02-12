@@ -66,6 +66,8 @@ class SingleCegis:
             bias=self.certificate.bias,
             config=self.config,
         )
+        # print(learner_instance.layers.bias)
+        # print(learner_instance.layers.weight)
         return learner_instance
 
     def _initialise_verifier(self):
@@ -152,6 +154,84 @@ class SingleCegis:
             self.config.ROUNDING,
             config=self.config,
         )
+    
+    def save_nnet(self, path):
+        with open(path, "w") as f:
+            # write the number of layers
+            f.write(str(len(self.learner.layers)) + ",")
+            # write the number of inputs
+            f.write(str(self.learner.layers[0].in_features) + ",")
+            # write the number of outputs
+            f.write(str(self.learner.layers[-1].out_features) + ",")
+            # write the maximum layer size
+            f.write(str(max([layer.out_features for layer in self.learner.layers])) + ",\n")
+
+            # write the number of neurons in each layer
+            for layer in self.learner.layers:
+                f.write(str(layer.in_features) + ",")
+            f.write(str(self.learner.layers[-1].out_features) + ",\n")
+
+            # WRITE A RANDOM ZERO FOR THIS STUPID PROGRAM
+            f.write("0,\n")
+
+            # write the minimum value of inputs
+            for layer in self.learner.layers:
+                # for the moment print -10 for all inputs
+                # for i in range(layer.in_features):
+                f.write("-10,")
+            f.write("\n")
+
+            # write the maximum value for each layer
+            for layer in self.learner.layers:
+                # for the moment print 10 for all inputs
+                # for i in range(layer.in_features):
+                f.write("10,")
+            f.write("\n")
+
+            # Mean values of inputs and one value for all outputs 
+            for layer in self.learner.layers:
+                # for the moment print 0 for all inputs
+                # for i in range(layer.in_features):
+                f.write("0,")
+            f.write("0,\n")
+
+            # Range values of inputs and one value for all outputs
+            for layer in self.learner.layers:
+                # for the moment print 10 for all inputs
+                # for i in range(layer.in_features):
+                f.write("10,")
+            f.write("10,\n")
+            
+            # write the weights and biases for each layer
+            # for layer in self.learner.layers:
+            #     print (layer.weight)
+            #     for i in range(layer.out_features):
+            #         for j in range(layer.in_features):
+            #             f.write(str(layer.weight[i][j].item()) + ", ")
+            #         f.write(str(layer.bias[i].item()) + ",\n")
+            # write the weight matrix and bias vector for each layer
+            for layer in self.learner.layers:
+                print(layer.weight)
+                print(layer.bias)
+                for i in range(layer.out_features):
+                    for j in range(layer.in_features):
+                        f.write(str(layer.weight[i][j].item()) + ",")
+                    f.write("\n")
+            # for layer in self.learner.layers:
+                for i in range(layer.out_features):
+                    if layer.bias is not None:
+                        f.write(str(layer.bias[i].item()) + ",\n")
+                    else:
+                        f.write("0.0,\n")
+                # f.write("\n")
+            # write the weights and biases for the last layer
+            for j in range(self.learner.layers[-1].in_features):
+                for i in range(self.learner.layers[-1].out_features):
+                    f.write(str(self.learner.layers[-1].weight[i][j].item()) + ",")
+                if self.learner.layers[-1].bias is not None:
+                    f.write(str(self.learner.layers[-1].bias[i].item()) + ",\n")
+                else:
+                    f.write("0.0,\n")
 
     def solve(self) -> Result:
         Sdot = {lab: self.f(S) for lab, S in self.S.items()}

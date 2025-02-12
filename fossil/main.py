@@ -114,6 +114,7 @@ def synthesise(opts: consts.CegisConfig) -> Result:
         torch.manual_seed(opts.SEED)
     c = Cegis(opts)
     result = c.solve()
+    c.save_nnet("nnet.txt")
     return result
 
 
